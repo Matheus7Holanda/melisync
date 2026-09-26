@@ -10,12 +10,14 @@ item) no valor total daquele envio.
 
 - ✅ Autenticação OAuth2 completa com o Mercado Livre (troca de `code` por
   token, persistência em banco H2, renovação automática via `refresh_token`).
-- ⏳ Busca de pedidos/envios do dia, mapeamento por SKU, consolidação com
-  desconto FLEX e envio ao VHSYS — ainda não implementados.
-- ⏳ Integração com o VHSYS (`VhsysClient`) está com a estrutura pronta, mas
-  o path e o schema reais dos endpoints (produto por SKU, PDV/venda) ainda
-  precisam ser confirmados com o suporte VHSYS — ver comentários `TODO` em
-  `VhsysClient.java` e `VhsysPdvRequestDTO.java`.
+- ✅ `VhsysClient` implementado contra a documentação oficial da API VHSYS:
+  busca de produto por SKU (`GET /produtos`) e criação de venda balcão em
+  duas chamadas (`POST /vendas-balcao` para o cabeçalho — onde entra o
+  desconto FLEX consolidado do dia — e `POST /vendas-balcao/{id_frente}/produtos`
+  para os itens).
+- ⏳ Busca de pedidos/envios do dia no Mercado Livre, mapeamento por SKU e
+  consolidação com desconto FLEX — ainda não implementados (é o que liga o
+  `MercadoLivreAuthService` ao `VhsysClient`).
 
 ## Stack
 
@@ -30,7 +32,7 @@ item) no valor total daquele envio.
 com.example.demo
 ├── DemoApplication.java   # única classe @SpringBootApplication
 ├── config/                # MercadoLivreProperties, VhsysProperties, WebClientConfig
-├── client/                # VhsysClient (produto por SKU, envio de PDV)
+├── client/                # VhsysClient (produto por SKU, venda balcão)
 ├── controller/            # MercadoLivreAuthController (fluxo OAuth2)
 ├── domain/                # MlOAuthToken (entidade JPA)
 ├── dto/ml/                # DTOs da API do Mercado Livre
@@ -121,6 +123,11 @@ Com a aplicação rodando, acesse `http://localhost:8080/h2-console`.
   Console) ainda está com o arquivo do banco travado. Confirme com
   `netstat -ano | findstr 8080` (Windows) que a porta está livre antes de
   rodar de novo.
+- A API do VHSYS autentica via **headers** (`access-token`,
+  `secret-access-token`, `User-Agent`), não via query param. Não existe
+  conceito de "PDV" a escolher — a venda balcão é vinculada direto à
+  empresa da conta, criada em duas chamadas: `POST /vendas-balcao`
+  (cabeçalho) e `POST /vendas-balcao/{id_frente}/produtos` (itens).
 
 ## Licença
 
