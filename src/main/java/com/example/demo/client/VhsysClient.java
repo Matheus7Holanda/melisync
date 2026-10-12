@@ -9,6 +9,7 @@ import com.example.demo.dto.vhsys.VhsysVendaBalcaoResponseDTO;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.List;
 import java.util.Optional;
@@ -52,10 +53,13 @@ public class VhsysClient {
                 .bodyToMono(VhsysListaProdutosResponse.class)
                 .block();
 
-        if (resposta == null || resposta.data() == null || resposta.data().isEmpty()) {
+        if (resposta == null || resposta.data() == null) {
             return Optional.empty();
         }
-        return Optional.of(resposta.data().get(0));
+        // a busca pode devolver codigos parecidos: so vale o codigo IGUAL ao SKU
+        return resposta.data().stream()
+                .filter(p -> p.codProduto() != null && p.codProduto().trim().equalsIgnoreCase(sku.trim()))
+                .findFirst();
     }
 
     /**
@@ -64,13 +68,18 @@ public class VhsysClient {
      * id_frente gerado, necessario para o passo 2.
      */
     public Long criarVendaBalcao(VhsysVendaBalcaoRequestDTO requestDTO) {
-        VhsysVendaBalcaoResponseDTO resposta = vhsysWebClient.post()
-                .uri("/vendas-balcao")
-                .headers(this::adicionarHeadersDeAutenticacao)
-                .bodyValue(requestDTO)
-                .retrieve()
-                .bodyToMono(VhsysVendaBalcaoResponseDTO.class)
-                .block();
+        VhsysVendaBalcaoResponseDTO resposta;
+        try {
+            resposta = vhsysWebClient.post()
+                    .uri("/vendas-balcao")
+                    .headers(this::adicionarHeadersDeAutenticacao)
+                    .bodyValue(requestDTO)
+                    .retrieve()
+                    .bodyToMono(VhsysVendaBalcaoResponseDTO.class)
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw erroVhsys("criar a venda balcao", e);
+        }
 
         if (resposta == null || resposta.data() == null || resposta.data().idFrente() == null) {
             throw new IllegalStateException("VHSYS nao retornou id_frente ao criar a venda balcao.");
@@ -83,13 +92,22 @@ public class VhsysClient {
      * vendido no dia) a venda balcao criada no passo 1.
      */
     public void adicionarProdutosVendaBalcao(Long idFrente, List<VhsysItemVendaBalcaoDTO> itens) {
-        vhsysWebClient.post()
-                .uri("/vendas-balcao/{id_frente}/produtos", idFrente)
-                .headers(this::adicionarHeadersDeAutenticacao)
-                .bodyValue(itens)
-                .retrieve()
-                .toBodilessEntity()
-                .block();
+        try {
+            vhsysWebClient.post()
+                    .uri("/vendas-balcao/{id_frente}/produtos", idFrente)
+                    .headers(this::adicionarHeadersDeAutenticacao)
+                    .bodyValue(itens)
+                    .retrieve()
+                    .toBodilessEntity()
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw erroVhsys("adicionar produtos a venda id_frente=" + idFrente, e);
+        }
+    }
+
+    private IllegalStateException erroVhsys(String acao, WebClientResponseException e) {
+        return new IllegalStateException("VHSYS recusou ao " + acao + ": HTTP "
+                + e.getStatusCode().value() + " - " + e.getResponseBodyAsString(), e);
     }
 
     private void adicionarHeadersDeAutenticacao(HttpHeaders headers) {

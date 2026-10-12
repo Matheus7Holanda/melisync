@@ -15,9 +15,39 @@ item) no valor total daquele envio.
   duas chamadas (`POST /vendas-balcao` para o cabeçalho — onde entra o
   desconto FLEX consolidado do dia — e `POST /vendas-balcao/{id_frente}/produtos`
   para os itens).
-- ⏳ Busca de pedidos/envios do dia no Mercado Livre, mapeamento por SKU e
-  consolidação com desconto FLEX — ainda não implementados (é o que liga o
-  `MercadoLivreAuthService` ao `VhsysClient`).
+- ✅ Busca dos **envios de um dia** (`MercadoLivreOrderService`), com dois
+  critérios de "dia" (variável `ML_CRITERIO_DATA`, padrão `CRIACAO_PEDIDO`):
+  - `CRIACAO_PEDIDO`: pedidos pagos **criados** no dia. Mais simples e
+    barato; bom para validar a integração.
+  - `SAIDA_ENVIO`: envios que **saíram** no dia (alvo final). Como a API não
+    permite buscar envios por data de saída, busca pedidos dos últimos
+    `ML_DIAS_RETROATIVOS` dias (padrão 10), lê `/shipments/{id}/history` e
+    fica com os que tiveram o status `shipped` ("A caminho") no dia, no
+    horário do Brasil. A regra fica isolada em `RegraSaidaEnvio`.
+
+  Nos dois casos os pedidos pagos são agrupados por envio (um carrinho =
+  vários pedidos no mesmo envio), identifica envios FLEX (`self_service`) e
+  monta o modelo de domínio (`EnvioMercadoLivre` → `ItemVenda`), com o
+  desconto de R$ 13,00 aplicado **uma vez por envio** (testado em
+  `EnvioMercadoLivreTest`).
+
+  O valor que vai para o VHSYS é o que o vendedor **recebe**:
+  `valorRecebidoMl = (valor unitário × quantidade) − tarifa de venda − frete
+  pago pelo vendedor` (fórmula da documentação do ML; `CalculoRecebimento`),
+  e `valorLiquido = valorRecebidoMl − desconto FLEX`. A tarifa vem de
+  `marketplace_fee` dos pagamentos aprovados do pedido e o frete de
+  `GET /shipments/{id}/costs` (custo do vendedor). Se o ML não informar o
+  frete de um envio, ele é considerado 0 e o envio traz um `avisos` no JSON.
+- ⏳ Mapeamento de SKU → produto VHSYS, consolidação da venda do dia, envio
+  ao VHSYS e agendamento — próximos passos.
+
+Para conferir o Passo 4 manualmente (acesse sempre por `localhost`; o
+endpoint recusa requisições vindas do túnel ngrok):
+
+```
+GET http://localhost:8080/sincronizacao/pedidos-do-dia?data=2026-10-10
+GET http://localhost:8080/sincronizacao/pedidos-do-dia?data=2026-10-10&criterio=SAIDA_ENVIO
+```
 
 ## Stack
 
