@@ -2,6 +2,7 @@ package com.example.demo.controller;
 
 import com.example.demo.domain.CriterioDataEnvio;
 import com.example.demo.domain.EnvioMercadoLivre;
+import com.example.demo.client.VhsysClient;
 import com.example.demo.service.EnvioVhsysService;
 import com.example.demo.service.MapeamentoSkuService;
 import com.example.demo.service.MercadoLivreOrderService;
@@ -37,10 +38,13 @@ public class SincronizacaoController {
 
     private final MapeamentoSkuService mapeamentoSkuService;
     private final EnvioVhsysService envioVhsysService;
+    private final VhsysClient vhsysClient;
 
     public SincronizacaoController(MercadoLivreOrderService orderService,
                                    MapeamentoSkuService mapeamentoSkuService,
-                                   EnvioVhsysService envioVhsysService) {
+                                   EnvioVhsysService envioVhsysService,
+                                   VhsysClient vhsysClient) {
+        this.vhsysClient = vhsysClient;
         this.orderService = orderService;
         this.mapeamentoSkuService = mapeamentoSkuService;
         this.envioVhsysService = envioVhsysService;
@@ -72,6 +76,17 @@ public class SincronizacaoController {
     ) {
         apenasLocalhost(request);
         return envioVhsysService.sincronizar(data != null ? data : LocalDate.now(), criterio, true);
+    }
+
+    /**
+     * DIAGNOSTICO (somente leitura). Exemplos:
+     *   /sincronizacao/vhsys-raw?caminho=/produtos?cod_produto=FJ2090K
+     *   /sincronizacao/vhsys-raw?caminho=/vendas-balcao/123456/produtos
+     */
+    @GetMapping(value = "/sincronizacao/vhsys-raw", produces = "application/json")
+    public String vhsysBruto(@RequestParam String caminho, HttpServletRequest request) {
+        apenasLocalhost(request);
+        return vhsysClient.consultaBruta(caminho);
     }
 
     private void apenasLocalhost(HttpServletRequest request) {

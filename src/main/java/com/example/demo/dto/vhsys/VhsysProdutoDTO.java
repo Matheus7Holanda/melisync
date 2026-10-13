@@ -17,6 +17,7 @@ public record VhsysProdutoDTO(
         @JsonProperty("cod_produto") String codProduto,
         @JsonProperty("desc_produto") String descProduto,
         @JsonProperty("valor_produto") String valorProduto,
-        @JsonProperty("status_produto") String statusProduto
+        @JsonProperty("status_produto") String statusProduto,
+        @JsonProperty("lixeira") String lixeira
 ) {
 }

@@ -7,5 +7,9 @@ import java.time.LocalDate;
 import java.util.Optional;
 
 public interface VendaVhsysDiaRepository extends JpaRepository<VendaVhsysDia, Long> {
+
     Optional<VendaVhsysDia> findByDia(LocalDate dia);
+
+    /** A venda criada mais recentemente pela integracao. */
+    Optional<VendaVhsysDia> findFirstByOrderByCriadaEmDesc();
 }

@@ -21,15 +21,17 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Passos 6 e 7: consolida os envios do dia numa UNICA venda balcao do VHSYS
- * (cliente "MERCADO LIVRE") e lanca as pecas com o valor recebido rateado.
+ * Passos 6 e 7: lanca os envios do Mercado Livre numa venda balcao do VHSYS
+ * (cliente "MERCADO LIVRE"), com o valor recebido rateado por peca.
  *
- * Seguranca contra duplicidade:
- *  - cada envio lancado fica registrado (EnvioEnviadoVhsys, shippingId unico);
- *    rodar de novo so lanca envios NOVOS;
- *  - a venda do dia (id_frente) fica registrada; envios novos do mesmo dia
- *    entram na MESMA venda;
- *  - se houver SKU sem produto no VHSYS, NADA e enviado.
+ * Qual venda recebe os envios: a ULTIMA venda criada pela integracao, desde que
+ * ainda esteja "Em Aberto" no VHSYS (consulta na hora). Se ela ja foi concluida,
+ * cancelada ou excluida, abre uma venda nova. O estoque NAO e baixado aqui:
+ * baixa quando voce conclui a venda no PDV do VHSYS.
+ *
+ * Contra duplicidade: cada envio lancado fica registrado (shippingId unico);
+ * rodar de novo so lanca envios NOVOS. Com SKU sem produto no VHSYS, nada e enviado.
+ * Produtos iguais sao juntos numa linha so, somando a quantidade.
  */
 @Service
 public class EnvioVhsysService {
@@ -84,49 +86,56 @@ public class EnvioVhsysService {
                 .filter(e -> !jaEnviados.contains(e.getShippingId()))
                 .toList();
 
-        Long idFrenteExistente = vendaRepository.findByDia(dia).map(VendaVhsysDia::getIdFrente).orElse(null);
-
         if (novos.isEmpty()) {
-            return new Resultado(dia, Situacao.NADA_A_ENVIAR, idFrenteExistente,
+            return new Resultado(dia, Situacao.NADA_A_ENVIAR, null,
                     List.of(), List.of(), List.of(), BigDecimal.ZERO, List.of());
         }
+
+        // venda que vai receber os envios: a ultima da integracao, se ainda "Em Aberto" no VHSYS
+        Long idFrenteAberta = vendaRepository.findFirstByOrderByCriadaEmDesc()
+                .map(VendaVhsysDia::getIdFrente)
+                .filter(vhsysClient::vendaBalcaoEstaAberta)
+                .orElse(null);
 
         MapeamentoSkuService.Resultado mapeamento = mapeamentoSkuService.mapear(novos);
         List<String> avisos = novos.stream().flatMap(e -> e.getAvisos().stream()).toList();
         List<Long> shippingIds = novos.stream().map(EnvioMercadoLivre::getShippingId).toList();
         if (!mapeamento.completo()) {
-            return new Resultado(dia, Situacao.BLOQUEADO_SKU_PENDENTE, idFrenteExistente,
+            return new Resultado(dia, Situacao.BLOQUEADO_SKU_PENDENTE, idFrenteAberta,
                     shippingIds, mapeamento.skusPendentes(), List.of(), BigDecimal.ZERO, avisos);
         }
 
-        List<VhsysItemVendaBalcaoDTO> itens = new ArrayList<>();
+        List<RateioValorRecebido.LinhaRateada> linhasRateadas = new ArrayList<>();
         BigDecimal totalLiquido = BigDecimal.ZERO;
         for (EnvioMercadoLivre envio : novos) {
-            BigDecimal somaEnvio = BigDecimal.ZERO;
-            for (RateioValorRecebido.LinhaRateada linha : RateioValorRecebido.ratear(envio)) {
-                itens.add(new VhsysItemVendaBalcaoDTO(linha.quantidade(),
-                        linha.item().getProdutoIdVhsys(), linha.item().getCodProdutoVhsys(),
-                        linha.valorUnitario(), descricaoDoItem(linha.item())));
-                somaEnvio = somaEnvio.add(linha.valorTotal());
-            }
+            List<RateioValorRecebido.LinhaRateada> doEnvio = RateioValorRecebido.ratear(envio);
+            BigDecimal somaEnvio = doEnvio.stream()
+                    .map(RateioValorRecebido.LinhaRateada::valorTotal)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
             if (somaEnvio.compareTo(envio.getValorLiquido()) != 0) {
                 throw new IllegalStateException("Rateio do envio " + envio.getShippingId()
                         + " nao fechou: linhas=" + somaEnvio + " liquido=" + envio.getValorLiquido());
             }
+            linhasRateadas.addAll(doEnvio);
             totalLiquido = totalLiquido.add(somaEnvio);
         }
 
+        List<VhsysItemVendaBalcaoDTO> itens = AgrupadorDeLinhas.agrupar(linhasRateadas).stream()
+                .map(l -> new VhsysItemVendaBalcaoDTO(l.quantidade(), l.idProduto(), l.codigo(),
+                        l.valorUnitario(), l.descricao()))
+                .toList();
+
         if (!confirmar) {
-            return new Resultado(dia, Situacao.PREVIA, idFrenteExistente,
+            return new Resultado(dia, Situacao.PREVIA, idFrenteAberta,
                     shippingIds, List.of(), itens, totalLiquido, avisos);
         }
 
-        Long idFrente = idFrenteExistente;
+        Long idFrente = idFrenteAberta;
         if (idFrente == null) {
             idFrente = vhsysClient.criarVendaBalcao(new VhsysVendaBalcaoRequestDTO(
-                    NOME_CLIENTE, STATUS_PEDIDO, "Vendas Mercado Livre de " + dia + " (integracao)"));
-            vendaRepository.save(new VendaVhsysDia(dia, idFrente)); // guarda ja: se os itens falharem, nao cria outra venda
-            log.info("Venda balcao criada no VHSYS: id_frente={} dia={}", idFrente, dia);
+                    NOME_CLIENTE, STATUS_PEDIDO, "Vendas Mercado Livre (integracao)"));
+            registrarVenda(dia, idFrente); // guarda ja: se os itens falharem, nao cria outra venda
+            log.info("Venda balcao criada no VHSYS: id_frente={}", idFrente);
         }
 
         vhsysClient.adicionarProdutosVendaBalcao(idFrente, itens);
@@ -140,9 +149,13 @@ public class EnvioVhsysService {
         return new Resultado(dia, Situacao.ENVIADO, idFrente, shippingIds, List.of(), itens, totalLiquido, avisos);
     }
 
-    /** Usa o nome do produto CADASTRADO no VHSYS; so cai no titulo do ML se o cadastro nao tiver nome. */
-    private static String descricaoDoItem(com.example.demo.domain.ItemVenda item) {
-        String desc = item.getDescProdutoVhsys();
-        return desc != null && !desc.isBlank() ? desc : item.getTitulo();
+    private void registrarVenda(LocalDate dia, Long idFrente) {
+        VendaVhsysDia existente = vendaRepository.findByDia(dia).orElse(null);
+        if (existente != null) {
+            existente.trocarVenda(idFrente);
+            vendaRepository.save(existente);
+        } else {
+            vendaRepository.save(new VendaVhsysDia(dia, idFrente));
+        }
     }
 }

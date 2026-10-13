@@ -9,7 +9,10 @@ import jakarta.persistence.Id;
 import java.time.Instant;
 import java.time.LocalDate;
 
-/** A venda balcao unica criada no VHSYS para um dia (uma linha por dia). */
+/**
+ * Venda balcao criada pela integracao no VHSYS. A mais recente (criadaEm) e a
+ * candidata a receber novos envios, enquanto estiver "Em Aberto" no VHSYS.
+ */
 @Entity
 public class VendaVhsysDia {
 
@@ -34,11 +37,21 @@ public class VendaVhsysDia {
         this.criadaEm = Instant.now();
     }
 
+    /** Aponta esta linha para uma venda nova (o dia ja tinha uma venda, ja concluida). */
+    public void trocarVenda(Long novoIdFrente) {
+        this.idFrente = novoIdFrente;
+        this.criadaEm = Instant.now();
+    }
+
     public LocalDate getDia() {
         return dia;
     }
 
     public Long getIdFrente() {
         return idFrente;
+    }
+
+    public Instant getCriadaEm() {
+        return criadaEm;
     }
 }
