@@ -26,7 +26,7 @@ public record MercadoLivreProperties(
         return diasRetroativos != null && diasRetroativos >= 0 ? diasRetroativos : DIAS_RETROATIVOS_PADRAO;
     }
 
-    /** Criterio de "envios do dia" configurado (padrao: CRIACAO_PEDIDO). */
+    /** Criterio de "envios do dia" configurado (padrao: ENVIOS_DE_HOJE). */
     public CriterioDataEnvio criterioDataOuPadrao() {
         return CriterioDataEnvio.deTexto(criterioData);
     }

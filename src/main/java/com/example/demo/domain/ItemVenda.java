@@ -1,6 +1,7 @@
 package com.example.demo.domain;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * Um item vendido no Mercado Livre, ja traduzido para o modelo interno.
@@ -19,6 +20,8 @@ public class ItemVenda {
     private Long produtoIdVhsys;
     private String codProdutoVhsys;
     private String descProdutoVhsys;
+    /** Preenchido so quando o SKU do anuncio e um KIT (varios codigos no mesmo anuncio). */
+    private List<ComponenteKit> componentesKit;
 
     public ItemVenda(String sku, String titulo, int quantidade, BigDecimal valorUnitarioRecebido) {
         this.sku = sku;
@@ -68,5 +71,17 @@ public class ItemVenda {
         this.produtoIdVhsys = id;
         this.codProdutoVhsys = codigo;
         this.descProdutoVhsys = descricao;
+    }
+
+    public boolean isKit() {
+        return componentesKit != null;
+    }
+
+    public List<ComponenteKit> getComponentesKit() {
+        return componentesKit;
+    }
+
+    public void definirComponentesKit(List<ComponenteKit> componentes) {
+        this.componentesKit = List.copyOf(componentes);
     }
 }

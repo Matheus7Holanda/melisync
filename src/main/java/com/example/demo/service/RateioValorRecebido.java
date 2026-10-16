@@ -63,32 +63,8 @@ public final class RateioValorRecebido {
         }
 
         long alvo = valorAlvo.movePointRight(2).longValueExact();
-        int n = pesoCentavos.size();
-        long[] parte = new long[n];
-        BigInteger[] resto = new BigInteger[n];
-        long somaPartes = 0;
-        for (int k = 0; k < n; k++) {
-            BigInteger[] qr = BigInteger.valueOf(alvo)
-                    .multiply(BigInteger.valueOf(pesoCentavos.get(k)))
-                    .divideAndRemainder(pesoTotal);
-            parte[k] = qr[0].longValueExact();
-            resto[k] = qr[1];
-            somaPartes += parte[k];
-        }
-
-        // sobras de centavo: vao para quem tem maior resto (empate: ordem original)
-        long sobra = alvo - somaPartes;
-        List<Integer> ordem = new ArrayList<>();
-        for (int k = 0; k < n; k++) {
-            ordem.add(k);
-        }
-        ordem.sort((a, b) -> {
-            int c = resto[b].compareTo(resto[a]);
-            return c != 0 ? c : Integer.compare(a, b);
-        });
-        for (int s = 0; s < sobra; s++) {
-            parte[ordem.get(s)]++;
-        }
+        long[] pesos = pesoCentavos.stream().mapToLong(Long::longValue).toArray();
+        long[] parte = distribuirCentavos(alvo, pesos);
 
         // agrupa unidades iguais do mesmo item em linhas
         List<LinhaRateada> linhas = new ArrayList<>();
@@ -112,5 +88,44 @@ public final class RateioValorRecebido {
             }
         }
         return linhas;
+    }
+
+    /**
+     * Reparte "alvo" centavos entre os pesos, proporcionalmente, sem sobrar nem
+     * faltar centavo: as sobras vao para quem tem maior resto (empate: ordem original).
+     */
+    public static long[] distribuirCentavos(long alvo, long[] pesos) {
+        BigInteger pesoTotal = BigInteger.ZERO;
+        for (long p : pesos) {
+            pesoTotal = pesoTotal.add(BigInteger.valueOf(p));
+        }
+        if (pesoTotal.signum() == 0) {
+            throw new IllegalArgumentException("Pesos zerados: impossivel ratear.");
+        }
+        int n = pesos.length;
+        long[] parte = new long[n];
+        BigInteger[] resto = new BigInteger[n];
+        long somaPartes = 0;
+        for (int k = 0; k < n; k++) {
+            BigInteger[] qr = BigInteger.valueOf(alvo)
+                    .multiply(BigInteger.valueOf(pesos[k]))
+                    .divideAndRemainder(pesoTotal);
+            parte[k] = qr[0].longValueExact();
+            resto[k] = qr[1];
+            somaPartes += parte[k];
+        }
+        long sobra = alvo - somaPartes;
+        List<Integer> ordem = new ArrayList<>();
+        for (int k = 0; k < n; k++) {
+            ordem.add(k);
+        }
+        ordem.sort((a, b) -> {
+            int c = resto[b].compareTo(resto[a]);
+            return c != 0 ? c : Integer.compare(a, b);
+        });
+        for (int s = 0; s < sobra; s++) {
+            parte[ordem.get(s)]++;
+        }
+        return parte;
     }
 }

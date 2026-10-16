@@ -108,7 +108,9 @@ public class EnvioVhsysService {
         List<RateioValorRecebido.LinhaRateada> linhasRateadas = new ArrayList<>();
         BigDecimal totalLiquido = BigDecimal.ZERO;
         for (EnvioMercadoLivre envio : novos) {
-            List<RateioValorRecebido.LinhaRateada> doEnvio = RateioValorRecebido.ratear(envio);
+            // rateia o valor do envio entre os anuncios e, nos kits, entre as pecas (por custo)
+            List<RateioValorRecebido.LinhaRateada> doEnvio =
+                    ExpansorDeKits.expandir(RateioValorRecebido.ratear(envio));
             BigDecimal somaEnvio = doEnvio.stream()
                     .map(RateioValorRecebido.LinhaRateada::valorTotal)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);

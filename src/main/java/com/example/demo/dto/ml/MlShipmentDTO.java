@@ -14,6 +14,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record MlShipmentDTO(
         Long id,
         String status,
+        String substatus,
         @JsonProperty("logistic_type") String logisticType,
         Logistic logistic
 ) {

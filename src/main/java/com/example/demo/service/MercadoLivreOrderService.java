@@ -64,9 +64,11 @@ public class MercadoLivreOrderService {
 
     public List<EnvioMercadoLivre> buscarEnviosDoDia(LocalDate dia, CriterioDataEnvio criterio) {
         log.info("Buscando envios de {} (criterio: {})", dia, criterio);
-        return criterio == CriterioDataEnvio.SAIDA_ENVIO
-                ? buscarPorSaidaDoEnvio(dia)
-                : buscarPorCriacaoDoPedido(dia);
+        return switch (criterio) {
+            case SAIDA_ENVIO -> buscarPorSaidaDoEnvio(dia);
+            case ENVIOS_DE_HOJE -> buscarEnviosDeHoje(dia);
+            case CRIACAO_PEDIDO -> buscarPorCriacaoDoPedido(dia);
+        };
     }
 
     // ------------------------------------------------------------------
@@ -125,6 +127,43 @@ public class MercadoLivreOrderService {
             }
 
             envios.add(montarEnvio(shippingId, entrada.getValue(), envio.isFlex(), saida.get()));
+        }
+
+        registrarResumo(envios, dia);
+        return envios;
+    }
+
+    // ------------------------------------------------------------------
+    // ENVIOS_DE_HOJE
+    // ------------------------------------------------------------------
+
+    /** Quantos dias para tras olhamos pedidos: um envio pode esperar dias para ser despachado. */
+    private static final int JANELA_ENVIOS_PENDENTES_DIAS = 30;
+
+    /**
+     * Equivale a lista "Envios de hoje" do painel do ML: envios prontos para
+     * despachar (status ready_to_ship), sem os agendados para dias futuros
+     * (substatus buffered). A data do PEDIDO nao importa. Quando o envio e
+     * despachado, ele sai da lista, entao e preciso rodar antes disso.
+     */
+    private List<EnvioMercadoLivre> buscarEnviosDeHoje(LocalDate dia) {
+        OffsetDateTime inicio = inicioDoDia(dia.minusDays(JANELA_ENVIOS_PENDENTES_DIAS));
+        List<MlOrderDTO> pedidos = buscarTodosOsPedidos(inicio, fimDoDia(dia));
+        Map<Long, List<MlOrderDTO>> pedidosPorEnvio = agruparPedidosPagosPorEnvio(pedidos);
+        log.info("{} envio(s) distinto(s) a verificar (pedidos dos ultimos {} dias)",
+                pedidosPorEnvio.size(), JANELA_ENVIOS_PENDENTES_DIAS);
+
+        List<EnvioMercadoLivre> envios = new ArrayList<>();
+        for (Map.Entry<Long, List<MlOrderDTO>> entrada : pedidosPorEnvio.entrySet()) {
+            // falha de consulta sobe de proposito: pular em silencio esconderia uma venda
+            MlShipmentDTO envio = orderClient.buscarEnvio(entrada.getKey());
+            if (envio == null || !RegraEnviosDeHoje.estaNaListaDeHoje(envio.status(), envio.substatus())) {
+                continue;
+            }
+            EnvioMercadoLivre montado = montarEnvio(entrada.getKey(), entrada.getValue(), envio.isFlex(), null);
+            montado.getAvisos().add("Situacao do envio no ML: " + envio.status()
+                    + (envio.substatus() != null ? " / " + envio.substatus() : ""));
+            envios.add(montado);
         }
 
         registrarResumo(envios, dia);
